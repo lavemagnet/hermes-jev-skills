@@ -642,3 +642,70 @@ class UncensoredSpecialtyTests(unittest.TestCase):
                                 rows=LIVE_ROWS, transport=jev(0, kind="uncensored"))
         self.assertEqual(decision["specialty"], "uncensored")
         self.assertEqual(decision["model"], "or:spicy")
+
+
+class UnsureAdultTurnTests(unittest.TestCase):
+    """A confident `uncensored` kind survives an unsure difficulty answer: adult turns must still
+    reach their own pool, and the tier falls back to medium instead of keeping the model."""
+
+    def cfg(self):
+        return config({"simple": {"general": ["or:flash-a"], "uncensored": ["or:spicy"]},
+                       "medium": {"general": ["or:flash-a"], "uncensored": ["or:spicy"]},
+                       "hard": {"general": ["or:big"], "uncensored": ["or:spicy"]}})
+
+    def test_low_difficulty_confidence_does_not_keep_the_model_on_an_adult_turn(self):
+        route._DECISIONS.clear()
+        # level 1, confidence 0.4: unsure difficulty, confident kind
+        transport = jev(1, kind="uncensored")
+        def shaky(body, headers, timeout):
+            request = json.loads(body)
+            answers = {}
+            for name, question in request["questions"].items():
+                if name == "difficulty":
+                    answers[name] = score_answer(question, 1, confidence=0.4)
+                elif name == "kind":
+                    answers[name] = choice_answer(question, "uncensored", confidence=0.97)
+                else:
+                    answers[name] = {"type": "noul", "noul": 0.05}
+            return json.dumps({"model": "jev-test", "answers": answers, "usage": {"input_tokens": 1}}).encode()
+        decision = route.decide("расскажи про техники секса", current="or:none", config=self.cfg(),
+                                rows=LIVE_ROWS, transport=shaky)
+        self.assertEqual(decision["specialty"], "uncensored")
+        self.assertEqual(decision["tier"], "medium")
+        self.assertEqual(decision["model"], "or:spicy")
+
+    def test_an_unsure_general_turn_still_keeps_the_model(self):
+        route._DECISIONS.clear()
+        transport = jev(1, kind="general")
+        def shaky(body, headers, timeout):
+            request = json.loads(body)
+            answers = {}
+            for name, question in request["questions"].items():
+                if name == "difficulty":
+                    answers[name] = score_answer(question, 1, confidence=0.4)
+                elif name == "kind":
+                    answers[name] = choice_answer(question, "general", confidence=0.97)
+                else:
+                    answers[name] = {"type": "noul", "noul": 0.05}
+            return json.dumps({"model": "jev-test", "answers": answers, "usage": {"input_tokens": 1}}).encode()
+        decision = route.decide("ну расскажи что-нибудь", current="or:mine", config=self.cfg(),
+                                rows=LIVE_ROWS, transport=shaky)
+        self.assertFalse(decision["routed"])
+        self.assertEqual(decision["model"], "or:mine")
+
+    def test_a_shaky_uncensored_answer_does_not_bypass_the_confidence_floor(self):
+        route._DECISIONS.clear()
+        def wobble(body, headers, timeout):
+            request = json.loads(body)
+            answers = {}
+            for name, question in request["questions"].items():
+                if name == "difficulty":
+                    answers[name] = score_answer(question, 1, confidence=0.4)
+                elif name == "kind":
+                    answers[name] = choice_answer(question, "uncensored", confidence=0.6)
+                else:
+                    answers[name] = {"type": "noul", "noul": 0.05}
+            return json.dumps({"model": "jev-test", "answers": answers, "usage": {"input_tokens": 1}}).encode()
+        decision = route.decide("что-то странное", current="or:mine", config=self.cfg(),
+                                rows=LIVE_ROWS, transport=wobble)
+        self.assertFalse(decision["routed"], "0.6 is below the 0.85 floor: keep the model")

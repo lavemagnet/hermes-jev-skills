@@ -51,6 +51,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "simple_needs_confidence": 0.85,
     "hard_needs_probability": 0.6,    # P(substantial or expert) needed before paying for the hard tier
     "simple_needs_probability": 0.7,  # P(trivial) needed before dropping to the cheapest tier
+    # A confident `uncensored` kind survives an unsure difficulty answer: on adult turns Jev scores
+    # the difficulty at 0.4-0.5 confidence (it has not seen the rubric applied to that register)
+    # while answering the kind at 0.95-1.0. Keeping the model there would leave the turn on the very
+    # model the uncensored pools exist to route away from; the tier falls back to medium instead.
+    "uncensored_needs_confidence": 0.85,
     "ask_chars": 2500,                # how much of a long turn Jev reads: the opening and, mostly, the end
     # A scheduled or queued turn is a standing contract wrapped around one real instruction. Measured on this
     # fleet, that instruction is ~1% of the envelope. Name the sections that hold it and the ones that are
@@ -586,8 +591,18 @@ def decide(
 
     # An unsure answer is not evidence of a hard turn. Its averaged score lands mid-rubric by arithmetic,
     # so it must never buy the expensive tier: a harmless unsure turn stays put, a risky one gets medium.
+    #
+    # An exception, and the reason it is one: an unsure DIFFICULTY answer must not erase a confident
+    # KIND answer. On adult turns Jev routinely scores the difficulty at 0.4-0.5 confidence (it has
+    # never seen the rubric applied to that register) while answering `uncensored` at 0.95-1.0. Keeping
+    # the current model there leaves the turn on exactly the model the column exists to route away from.
+    # The tier falls back to medium, the same default every other unsure turn gets.
+    kind = answers["kind"]
+    uncensored = (isinstance(kind, dict) and kind.get("choice") == "uncensored"
+                  and float(kind.get("confidence") or 0.0)
+                  >= float(config.get("uncensored_needs_confidence", DEFAULT_CONFIG["uncensored_needs_confidence"])))
     unsure = confidence < config.get("min_confidence", DEFAULT_CONFIG["min_confidence"])
-    if unsure and not (risky or stakes > 0.6):
+    if unsure and not (risky or stakes > 0.6 or uncensored):
         return _keep(current, f"low confidence {confidence:.2f}", answers=answers, private=private)
 
     if unsure:
@@ -603,7 +618,6 @@ def decide(
         tier = "medium"        # risk words and costly mistakes set a floor of medium; they do not buy hard
     if not unsure and stakes > 0.85 and p_hard >= 0.35:
         tier = "hard"          # a costly mistake tips a turn that is already leaning hard
-    kind = answers["kind"]
     specialty = kind["choice"] if kind["confidence"] >= 0.5 else "general"
 
     # With no cache and no network the catalog load raises, and it used to take the turn
