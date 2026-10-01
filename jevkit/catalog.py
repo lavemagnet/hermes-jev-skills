@@ -21,6 +21,7 @@ CACHE_TTL = 24 * 3600
 HERMES_ALIASES = {
     "xai-oauth": "xai", "gemini": "google", "kimi-coding": "kimi-for-coding", "openai-codex": "openai",
     "zai": "zai", "copilot": "github-copilot", "minimax": "minimax", "moonshot": "moonshotai",
+    "nanogpt": "nano-gpt",
 }
 
 
@@ -68,6 +69,12 @@ def _env_names() -> Set[str]:
                     names.add(name.strip())
         except OSError:
             continue
+    # NanoGPT's catalog id is `nano-gpt`, whose declared key name is `NANO_GPT_API_KEY`,
+    # while the name everyone actually sets (Hermes configs, other tooling) is
+    # `NANOGPT_API_KEY`. Counting one for the other keeps a working key from hiding the
+    # provider; only the name is read, never a value.
+    if "NANOGPT_API_KEY" in names:
+        names.add("NANO_GPT_API_KEY")
     return names
 
 

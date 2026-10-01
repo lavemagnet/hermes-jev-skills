@@ -262,6 +262,22 @@ def _origin(url: str) -> Any:
 
 def _connect(key: Any, timeout: float) -> Any:
     scheme, host, port = key
+    # A host whose outbound HTTPS must go through an HTTP proxy (a laptop behind a corporate
+    # or national gateway) cannot reach the provider directly: every connection hangs until
+    # the caller's timeout. urllib.getproxies reads the standard env vars (HTTPS_PROXY...);
+    # a plain-HTTP proxy for this host is honored for https by CONNECT-tunneling through it
+    # and asking for TLS to the real destination inside the tunnel (set_tunnel). A SOCKS
+    # proxy is deliberately not handled here — http.client cannot speak SOCKS.
+    if scheme == "https":
+        proxies = urllib.request.getproxies()
+        proxy_url = proxies.get("https") or proxies.get("http")
+        if proxy_url and proxy_url.lower().startswith("http://"):
+            parsed = urllib.parse.urlsplit(proxy_url)
+            phost, pport = parsed.hostname, parsed.port or 80
+            if phost:
+                connection = http.client.HTTPSConnection(phost, pport, timeout=timeout)
+                connection.set_tunnel(host, port)
+                return connection
     if scheme == "http":
         return http.client.HTTPConnection(host, port, timeout=timeout)
     return http.client.HTTPSConnection(host, port, timeout=timeout)

@@ -21,7 +21,7 @@ from . import catalog as catalog_mod
 from . import client, ladder, privacy
 
 TIERS = ("simple", "medium", "hard")
-SPECIALTIES = ("general", "coding", "writing", "research", "vision")
+SPECIALTIES = ("general", "coding", "writing", "research", "uncensored", "vision")
 POLICY_VERSION = "route-2"
 
 DIFFICULTY = [
@@ -34,6 +34,7 @@ KIND = {
     "coding": "Writing, changing, debugging or reviewing software, scripts, configs or shell commands",
     "writing": "Drafting or editing prose, marketing, messages, documents or creative text",
     "research": "Finding, comparing or synthesizing information, analysis, or current events",
+    "uncensored": "Intimate, erotic, adult or otherwise age-restricted subject matter that a censored model may refuse",
     "general": "Conversation, planning, operations, or anything that is none of the others",
 }
 
@@ -137,6 +138,7 @@ _SPECIALTY_HINTS = {
     "coding": ("code", "coder", "codestral", "devstral", "starcoder", "qwen2.5-coder"),
     "writing": ("writer", "creative", "prose"),
     "research": ("search", "sonar", "research", "deep-research", "grok"),
+    "uncensored": ("uncensored", "abliterated", "heretic", "nsfw"),
 }
 
 

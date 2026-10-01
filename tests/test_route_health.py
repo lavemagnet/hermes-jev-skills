@@ -110,17 +110,17 @@ class SpecialtyCellTests(unittest.TestCase):
         cfg = config({"medium": {"general": ["or:a", "or:b"], "coding": ["or:a", "or:c"],
                                  "writing": ["or:w"], "research": ["or:r"]}})
         self.assertEqual(route.dead_axis(cfg), [], "the key-only check is the one that cannot see this")
-        self.assertEqual(self.dead(cfg), {"medium/coding"})
+        self.assertEqual(self.dead(cfg), {"medium/coding", "medium/uncensored"})
 
     def test_a_missing_pool_is_dead_because_it_falls_through_to_general(self):
         cfg = config({"hard": {"general": ["or:a"], "coding": ["or:c"]}})
-        self.assertEqual(self.dead(cfg), {"hard/writing", "hard/research"})
+        self.assertEqual(self.dead(cfg), {"hard/writing", "hard/research", "hard/uncensored"})
 
     def test_the_live_shape_has_five_dead_cells_where_the_key_check_found_none(self):
         cfg = config(LIVE_SHAPE)
         self.assertEqual(route.dead_axis(cfg), [])
-        self.assertEqual(self.dead(cfg), {"simple/coding", "simple/writing", "simple/research",
-                                          "medium/coding", "hard/writing"})
+        self.assertEqual(self.dead(cfg), {"simple/coding", "simple/writing", "simple/research", "simple/uncensored",
+                                          "medium/coding", "medium/uncensored", "hard/writing", "hard/uncensored"})
 
     def test_an_excluded_lead_is_skipped_on_both_sides_before_comparing(self):
         # general really leads with or:b once or:a is excluded, so a coding pool of [or:b] is dead,
@@ -166,7 +166,7 @@ class PriceLadderTests(unittest.TestCase):
         worst = down[0]
         self.assertEqual((worst["lower"]["price"], worst["higher"]["price"]), (0.24, 0.132))
         self.assertEqual(worst["ratio"], 1.82)
-        self.assertEqual(worst["specialties"], ["general", "coding"], "one finding per model pair, not per column")
+        self.assertEqual(worst["specialties"], ["general", "coding", "uncensored"], "one finding per model pair, not per column")
 
     def test_tiers_in_price_order_are_ok(self):
         cfg = config({"simple": {"general": ["or:flash-b"]}, "medium": {"general": ["or:gem"]},
@@ -313,19 +313,22 @@ class DoctorTests(unittest.TestCase):
         code, routing, _ = self.doctor(cfg)
         self.assertEqual(code, 0, "a costly config is a warning; only a missing key fails doctor")
         cells, prices = routing["warnings"]
-        self.assertIn("5 of 9", cells)
-        for name in ("simple/coding", "simple/writing", "simple/research", "medium/coding", "hard/writing"):
+        self.assertIn("8 of 12", cells)
+        for name in ("simple/coding", "simple/writing", "simple/research", "simple/uncensored",
+                         "medium/coding", "medium/uncensored", "hard/writing", "hard/uncensored"):
             self.assertIn(name, cells)
         self.assertIn("paid for", cells)
         self.assertIn("$0.24", prices)
         self.assertIn("$0.132", prices)
         self.assertIn("1.8x", prices)
         self.assertEqual(routing["price_order"], "inverted")
-        self.assertEqual(len(routing["dead_specialty_cells"]), 5)
+        self.assertEqual(len(routing["dead_specialty_cells"]), 8)
 
     def test_a_cheap_hard_tier_under_a_ladder_is_a_note_not_a_warning(self):
-        tiers = {"medium": {"general": ["or:gem"], "coding": ["or:kcode"], "writing": ["or:grok"], "research": ["or:k3"]},
-                 "hard": {"general": ["or:flash-b"], "coding": ["or:kcode"], "writing": ["or:grok"], "research": ["or:k3"]}}
+        tiers = {"medium": {"general": ["or:gem"], "coding": ["or:kcode"], "writing": ["or:grok"], "research": ["or:k3"],
+                            "uncensored": ["or:grok"]},
+                 "hard": {"general": ["or:flash-b"], "coding": ["or:kcode"], "writing": ["or:grok"], "research": ["or:k3"],
+                          "uncensored": ["or:kcode"]}}
         code, routing, _ = self.doctor(config(tiers, escalation={"enabled": True, "rungs": LADDER}))
         self.assertEqual(code, 0)
         self.assertNotIn("warnings", routing)
@@ -334,7 +337,7 @@ class DoctorTests(unittest.TestCase):
 
     def test_a_missing_key_is_the_only_thing_that_fails_doctor(self):
         healthy = {"simple": {"general": ["or:flash-b"], "coding": ["or:qflash"], "writing": ["or:flash-a"],
-                              "research": ["or:pro"]}}
+                              "research": ["or:pro"], "uncensored": ["or:qflash"]}}
         code, routing, _ = self.doctor(config(healthy), key=False)
         self.assertEqual(code, 1)
         self.assertNotIn("warnings", routing)
@@ -349,7 +352,7 @@ class DoctorTests(unittest.TestCase):
 
     def test_a_mistyped_pool_entry_is_named_instead_of_silently_skipped(self):
         cfg = config({"simple": {"general": ["flash-b", "or:flash-b"], "coding": ["or:qflash"],
-                                 "writing": ["or:flash-a"], "research": ["or:pro"]}})
+                                 "writing": ["or:flash-a"], "research": ["or:pro"], "uncensored": ["or:qflash"]}})
         code, routing, _ = self.doctor(cfg)
         self.assertEqual(code, 0)
         self.assertEqual(routing["malformed_pool_entries"][0]["entry"], "flash-b")
@@ -620,3 +623,22 @@ class MemoryFilterDescriptionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UncensoredSpecialtyTests(unittest.TestCase):
+    """The uncensored column: adult or age-restricted turns route to their own pool."""
+
+    def test_kind_offers_uncensored_and_it_is_answerable(self):
+        self.assertIn("uncensored", route.KIND)
+        self.assertIn("uncensored", route._ANSWERABLE)
+        self.assertIn("uncensored", route.SPECIALTIES)
+
+    def test_an_adult_turn_routes_to_the_uncensored_pool(self):
+        cfg = config({"simple": {"general": ["or:flash-a"], "uncensored": ["or:spicy"]},
+                      "medium": {"general": ["or:flash-a"], "uncensored": ["or:spicy"]},
+                      "hard": {"general": ["or:big"], "uncensored": ["or:spicy"]}})
+        route._DECISIONS.clear()
+        decision = route.decide("расскажи про техники секса", current="or:none", config=cfg,
+                                rows=LIVE_ROWS, transport=jev(0, kind="uncensored"))
+        self.assertEqual(decision["specialty"], "uncensored")
+        self.assertEqual(decision["model"], "or:spicy")
